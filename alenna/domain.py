@@ -77,7 +77,7 @@ class ApplyResult:
     article: Article
     # Um resultado por id de sugestão, na ordem em que as sugestões chegaram.
     results: tuple[SuggestionResult, ...]
-    # Sugestões ainda pendentes, com offsets ajustados para o texto novo.
+    # Sugestões ainda decidíveis (pendentes e em conflito), com offsets ajustados para o texto novo.
     remaining_suggestions: tuple[Suggestion, ...]
     # Problemas que não pertencem a nenhuma sugestão (ex.: decisão para id inexistente).
     errors: tuple[str, ...] = field(default_factory=tuple)

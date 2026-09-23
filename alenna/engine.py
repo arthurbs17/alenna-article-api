@@ -87,10 +87,17 @@ def apply_decisions(
     new_segments: list[Segment] = []
     remaining: dict[str, Suggestion] = {}
     for segment in article.segments:
-        applied = _drop_conflicts(accepted[segment.id], results)
+        applied, conflicted = _drop_conflicts(accepted[segment.id], results)
         for edit in applied:
             results[edit.suggestion.id] = SuggestionResult(edit.suggestion.id, Outcome.APPLIED)
         new_segments.append(replace(segment, text=_splice(segment.text, applied)))
+
+        # Em conflito continuam decidíveis: voltam rebaseadas para o usuário escolher
+        # uma delas na próxima rodada. Só se sobrepõem entre si, nunca a uma aplicada.
+        for edit in conflicted:
+            rebased = _rebase(edit, applied)
+            if rebased is not None:
+                remaining[edit.suggestion.id] = rebased
 
         for edit in pending[segment.id]:
             rebased = _rebase(edit, applied)
@@ -207,8 +214,8 @@ def _overlaps(a: _Edit, b: _Edit) -> bool:
 
 def _drop_conflicts(
     edits: list[_Edit], results: dict[str, SuggestionResult]
-) -> list[_Edit]:
-    """Remove (e reporta) todas as aceitas que se sobrepõem; devolve o resto ordenado."""
+) -> tuple[list[_Edit], list[_Edit]]:
+    """Separa (e reporta) as aceitas que se sobrepõem; devolve (aplicáveis ordenadas, em conflito)."""
     conflicts: dict[str, list[str]] = defaultdict(list)
     for i, a in enumerate(edits):
         for b in edits[i + 1 :]:
@@ -221,7 +228,8 @@ def _drop_conflicts(
             suggestion_id, Outcome.CONFLICT, f"sobrepõe: {', '.join(sorted(others))}"
         )
     kept = [e for e in edits if e.suggestion.id not in conflicts]
-    return sorted(kept, key=lambda e: (e.start, e.end))
+    conflicted = [e for e in edits if e.suggestion.id in conflicts]
+    return sorted(kept, key=lambda e: (e.start, e.end)), conflicted
 
 
 def _splice(text: str, edits: list[_Edit]) -> str:

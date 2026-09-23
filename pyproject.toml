@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "improve-article-api"
+version = "0.1.0"
+description = "Aplica ao artigo as sugestões de tradução/revisão aceitas pelo usuário."
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "pydantic-settings>=2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+include = ["alenna*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

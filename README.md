@@ -4,7 +4,7 @@ Solução para o desafio técnico da Alenna: aplicar ao conteúdo de um artigo a
 tradução/revisão (geradas por IA) que o usuário **aceitou** ou **rejeitou**.
 
 > **Entrada:** artigo (dividido em trechos) + sugestões + decisões do usuário
-> **Saída:** artigo atualizado + o status de cada sugestão + sugestões pendentes com offsets ajustados
+> **Saída:** artigo atualizado + o status de cada sugestão + sugestões ainda decidíveis (pendentes e em conflito) com offsets ajustados
 
 A regra fica toda em [`alenna/engine.py`](alenna/engine.py): uma função pura, sem dependências
 externas. A API HTTP ([`alenna/http.py`](alenna/http.py)) é só uma casca fina por cima dela.
@@ -45,7 +45,7 @@ O outro lado desse princípio: **uma sugestão problemática nunca bloqueia as o
 | D4 | Unidade dos offsets | Code points (índice de `str` do Python) | É o que o backend Python usa. **Atenção:** em JS os índices são UTF-16, então emoji e alguns símbolos contam 2. O frontend precisa converter (há um teste mostrando isso) |
 | D5 | Sugestão sem decisão | Fica **pendente**, e o texto não muda | O usuário pode decidir em lotes. Não decidir não é o mesmo que rejeitar |
 | D6 | Ordem de aplicação | As edições de um trecho são aplicadas **juntas, contra o texto original**, num único passe ordenado por posição | Evita os offsets desalinhados. O resultado não depende da ordem em que as decisões chegam |
-| D7 | Duas aceitas que se sobrepõem | **Nenhuma das duas é aplicada**. As duas voltam como `conflict`, com o id da outra. O resto do lote é aplicado normalmente | Escolher uma vencedora seria adivinhar o que o usuário quis. A UI pode mostrar o conflito e pedir para ele escolher |
+| D7 | Duas aceitas que se sobrepõem | **Nenhuma das duas é aplicada**. As duas voltam como `conflict`, com o id da outra, e também em `remaining_suggestions`, rebaseadas para o texto novo. O resto do lote é aplicado normalmente | Escolher uma vencedora seria adivinhar o que o usuário quis. A UI mostra o conflito e o usuário escolhe na rodada seguinte. Sem o rebase, os offsets antigos só seriam salvos pela realocação, que falha quando o `original` se repete no trecho |
 | D8 | O que conta como sobreposição | `a.start < b.end and b.start < a.end`. Intervalos que **só se encostam não conflitam**. Uma inserção estritamente **dentro** de um intervalo conflita. **Duas inserções no mesmo ponto** conflitam | São regras determinísticas. O único caso em que a ordem entre as edições seria arbitrária (duas inserções no mesmo ponto) vira conflito |
 | D9 | O texto mudou desde a geração | Se `text[start:end] == original`, aplica. Se não, tenta **realocar**: quando `original` aparece **exatamente uma vez** no trecho, usa essa posição. Se não aparece, ou aparece mais de uma vez, marca `stale` e não aplica | Edições manuais pequenas são comuns, e a realocação salva a maioria dos casos. Quando há mais de uma ocorrência, o risco de trocar a palavra errada é real |
 | D10 | Inserção pura (`original == ""`) | Não há texto para procurar. Aplica se o offset estiver dentro do trecho; senão, `stale` | É uma limitação conhecida (ver seção 6) |
@@ -65,7 +65,7 @@ O outro lado desse princípio: **uma sugestão problemática nunca bloqueia as o
 | `applied` | Foi aceita e aplicada |
 | `rejected` | O usuário rejeitou |
 | `pending` | Ainda não tem decisão e continua válida (volta em `remaining_suggestions`) |
-| `conflict` | Foi aceita, mas se sobrepõe a outra aceita, e nenhuma das duas foi aplicada |
+| `conflict` | Foi aceita, mas se sobrepõe a outra aceita, e nenhuma das duas foi aplicada (volta em `remaining_suggestions` para o usuário escolher) |
 | `stale` | O texto mudou e não deu para localizar a sugestão com segurança |
 | `superseded` | Estava pendente, mas o intervalo dela foi alterado por uma sugestão aplicada |
 | `invalid` | Entrada malformada; o motivo vem em `reason` |
@@ -86,7 +86,7 @@ apply_decisions(article, suggestions, decisions) -> ApplyResult
      aceita                                        -> candidata a aplicar
      sem decisão                                   -> pendente
 5. para cada trecho:
-     descarta as aceitas que se sobrepõem          -> conflict                   (D7/D8)
+     separa as aceitas que se sobrepõem            -> conflict (rebaseadas)      (D7/D8)
      ordena as restantes por (start, end) e monta
      o texto novo num único passe                  -> applied                    (D6)
      para cada pendente:
@@ -127,7 +127,7 @@ Arquivos:
 
 ## 4. Como verifico que funciona
 
-São 96 testes em `tests/`, e todos passam. Por grupo:
+São 102 testes em `tests/`, e todos passam. Por grupo:
 
 **Básico:** sem decisões, nada muda e tudo fica `pending`. Aceitar uma. Rejeitar uma. Decisões
 misturadas no mesmo trecho. **O resultado é o mesmo com sugestões e decisões em qualquer ordem.**
@@ -138,7 +138,9 @@ outros. A entrada não é alterada. Sugestão que não muda nada.
 inteiro junto com revisão pontual. A tradução sozinha é aplicada. Intervalos que se encostam são
 aplicados. Inserções nas bordas de um intervalo são aplicadas na ordem certa (`ab[CD]ef`). Inserção
 dentro de um intervalo dá conflito. Duas inserções no mesmo ponto dão conflito. Uma sugestão
-rejeitada que se sobrepõe a uma aceita não causa conflito.
+rejeitada que se sobrepõe a uma aceita não causa conflito. As sugestões em conflito voltam rebaseadas
+em `remaining_suggestions` (com o `replacement` original, não o ajuste do usuário) e podem ser
+resolvidas na rodada seguinte mesmo quando o `original` se repete no trecho.
 
 **Texto desatualizado:** offset desatualizado com `original` único é realocado e aplicado.
 `original` que sumiu vira `stale`. `original` ambíguo vira `stale`, inclusive com ocorrências que
@@ -162,6 +164,8 @@ viram `invalid`. Trecho duplicado no artigo levanta `ValueError`.
 points). Inserção em trecho vazio. Artigo vazio.
 
 **HTTP:** 200 com o payload esperado, 422 para payload malformado e 400 para trecho duplicado.
+
+**Configuração:** `LOG_LEVEL` é aceito em qualquer caixa (`info`, `INFO`).
 
 ---
 

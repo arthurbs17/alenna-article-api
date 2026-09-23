@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Separadas por vírgula; vazio = CORS desabilitado.
     cors_origins: str = ""
+
+    @field_validator("log_level")
+    @classmethod
+    def _normalize_log_level(cls, value: str) -> str:
+        # `logging` só aceita nomes de nível em maiúsculas ("info" derrubaria a API).
+        return value.strip().upper()
 
     @property
     def cors_origin_list(self) -> list[str]:

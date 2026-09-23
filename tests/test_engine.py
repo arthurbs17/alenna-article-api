@@ -193,6 +193,33 @@ def test_rejected_overlapping_suggestion_does_not_cause_conflict():
     assert result.article.text == "The results shows that the metod works."
 
 
+def test_conflicting_suggestions_return_rebased_and_can_be_resolved_next_round():
+    # "o teste" aparece 3 vezes: sem o rebase, a realocação não salvaria a sugestão.
+    text = "o teste. o teste. o teste"
+    s = [
+        Suggestion("early", "s1", 0, 1, "o", "O nosso"),  # aplicada, desloca o resto (+6)
+        Suggestion("x", "s1", 9, 16, "o teste", "o ensaio"),
+        Suggestion("y", "s1", 11, 16, "teste", "exame"),
+    ]
+    first = apply_decisions(article(text), s, [accept("early"), accept("x"), accept("y")])
+    assert first.outcome_of("x") is Outcome.CONFLICT
+    remaining = {r.id: r for r in first.remaining_suggestions}
+    assert set(remaining) == {"x", "y"}
+    new_text = first.article.segments[0].text
+    assert new_text[remaining["x"].start : remaining["x"].end] == "o teste"
+    assert remaining["x"].start == 15
+
+    second = apply_decisions(first.article, first.remaining_suggestions, [accept("x"), reject("y")])
+    assert second.outcome_of("x") is Outcome.APPLIED
+    assert second.article.text == "O nosso teste. o ensaio. o teste"
+
+
+def test_conflicting_suggestion_returns_with_its_own_replacement_not_the_user_edit():
+    s = [sug("a", TEXT, "The resuts", "Our results"), sug("b", TEXT, "resuts shows", "results show")]
+    result = apply_decisions(article(TEXT), s, [accept("a", "My results"), accept("b")])
+    assert result.remaining_suggestions == tuple(s)
+
+
 # --- Texto desatualizado ------------------------------------------------------
 
 
